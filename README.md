@@ -33,26 +33,49 @@ bazel test //java/greeter:greeter_test
 
 ## Using the BEP Stream Reader
 
-### Step 1: Build with BEP output
+The BEP stream reader supports two modes:
+- **Batch mode**: Read a completed BEP file after the build finishes
+- **Streaming mode** (`-f`): Follow the file in real-time as Bazel writes to it
 
-Run any Bazel command with `--build_event_binary_file` to capture events:
+### Option A: Batch Mode (Read Completed File)
 
 ```bash
 # Build and capture BEP events
 bazel build --build_event_binary_file=/tmp/bep.bin //...
 
-# Or test and capture events (shows test results in BEP)
-bazel test --build_event_binary_file=/tmp/bep.bin //java/greeter:greeter_test
-```
-
-### Step 2: Analyze the BEP events
-
-```bash
 # Build the BEP stream reader
 bazel build //tools/bepstream
 
-# Run it against the captured events
+# Analyze the captured events
 bazel-bin/tools/bepstream/bepstream_/bepstream /tmp/bep.bin
+```
+
+### Option B: Streaming Mode (Real-time)
+
+Stream events in real-time while Bazel is building:
+
+```bash
+# Terminal 1: Start the stream reader in follow mode (waits for file)
+rm -f /tmp/bep.bin  # Remove any old file first
+bazel run //tools/bepstream:bepstream -- -f /tmp/bep.bin
+
+# Terminal 2: Run your tests (and build)
+bazel test --build_event_binary_file=/tmp/bep.bin //java/...
+```
+
+The `-f` flag enables streaming mode which:
+- Waits for the file to be created if it doesn't exist
+- Polls for new data as it's written
+- Terminates when it receives the `LastMessage` event or times out
+
+#### Streaming Mode Options
+
+```bash
+# Custom poll interval (default 100ms)
+bepstream -f -poll 50ms /tmp/bep.bin
+
+# Custom timeout (default 5 minutes)
+bepstream -f -timeout 10m /tmp/bep.bin
 ```
 
 ### Example Output

@@ -1,20 +1,21 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"io"
+	"os"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protodelim"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	bespb "github.com/example/bep-demo/tools/bepstream/proto"
 )
 
-func TestReadDelimitedMessage(t *testing.T) {
+func TestProtodelimUnmarshal(t *testing.T) {
 	t.Run("valid message", func(t *testing.T) {
 		event := &bespb.BuildEvent{
 			LastMessage: true,
@@ -23,9 +24,9 @@ func TestReadDelimitedMessage(t *testing.T) {
 			},
 		}
 		data := encodeDelimitedMessage(t, event)
-		reader := bufio.NewReader(bytes.NewReader(data))
 
-		got, err := readDelimitedMessage(reader)
+		got := &bespb.BuildEvent{}
+		err := protodelim.UnmarshalFrom(bytes.NewReader(data), got)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -35,9 +36,8 @@ func TestReadDelimitedMessage(t *testing.T) {
 	})
 
 	t.Run("empty reader returns EOF", func(t *testing.T) {
-		reader := bufio.NewReader(bytes.NewReader(nil))
-
-		_, err := readDelimitedMessage(reader)
+		got := &bespb.BuildEvent{}
+		err := protodelim.UnmarshalFrom(bytes.NewReader(nil), got)
 		if err != io.EOF {
 			t.Errorf("expected io.EOF, got %v", err)
 		}
@@ -47,9 +47,9 @@ func TestReadDelimitedMessage(t *testing.T) {
 		event := &bespb.BuildEvent{LastMessage: true}
 		data := encodeDelimitedMessage(t, event)
 		truncated := data[:len(data)-2]
-		reader := bufio.NewReader(bytes.NewReader(truncated))
 
-		_, err := readDelimitedMessage(reader)
+		got := &bespb.BuildEvent{}
+		err := protodelim.UnmarshalFrom(bytes.NewReader(truncated), got)
 		if err == nil {
 			t.Error("expected error for truncated message")
 		}
@@ -65,10 +65,11 @@ func TestReadDelimitedMessage(t *testing.T) {
 		for _, e := range events {
 			buf.Write(encodeDelimitedMessage(t, e))
 		}
-		reader := bufio.NewReader(&buf)
+		reader := bytes.NewReader(buf.Bytes())
 
 		for i := range events {
-			got, err := readDelimitedMessage(reader)
+			got := &bespb.BuildEvent{}
+			err := protodelim.UnmarshalFrom(reader, got)
 			if err != nil {
 				t.Fatalf("message %d: unexpected error: %v", i, err)
 			}
@@ -390,6 +391,105 @@ func TestBuildStats(t *testing.T) {
 			buildFinished: false,
 		}
 		stats.printSummary()
+	})
+}
+
+func TestStreamReader(t *testing.T) {
+	t.Run("reads complete message", func(t *testing.T) {
+		event := &bespb.BuildEvent{
+			LastMessage: true,
+			Payload: &bespb.BuildEvent_Progress{
+				Progress: &bespb.Progress{},
+			},
+		}
+		data := encodeDelimitedMessage(t, event)
+
+		tmpFile, err := os.CreateTemp("", "bep-test-*.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(tmpFile.Name())
+
+		if _, err := tmpFile.Write(data); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tmpFile.Seek(0, 0); err != nil {
+			t.Fatal(err)
+		}
+
+		reader := newStreamReader(tmpFile, streamOptions{
+			follow:       false,
+			pollInterval: 10 * time.Millisecond,
+			timeout:      100 * time.Millisecond,
+		})
+
+		got, err := reader.readDelimitedMessage()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got.LastMessage {
+			t.Error("expected LastMessage to be true")
+		}
+	})
+
+	t.Run("follow mode waits for data", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "bep-follow-*.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpName := tmpFile.Name()
+		defer os.Remove(tmpName)
+		tmpFile.Close()
+
+		writeFile, err := os.OpenFile(tmpName, os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		readFile, err := os.Open(tmpName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer readFile.Close()
+
+		reader := newStreamReader(readFile, streamOptions{
+			follow:       true,
+			pollInterval: 10 * time.Millisecond,
+			timeout:      1 * time.Second,
+		})
+
+		event := &bespb.BuildEvent{
+			LastMessage: true,
+			Payload: &bespb.BuildEvent_Progress{
+				Progress: &bespb.Progress{},
+			},
+		}
+		data := encodeDelimitedMessage(t, event)
+
+		done := make(chan *bespb.BuildEvent, 1)
+		go func() {
+			got, err := reader.readDelimitedMessage()
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			done <- got
+		}()
+
+		time.Sleep(50 * time.Millisecond)
+		if _, err := writeFile.Write(data); err != nil {
+			t.Fatal(err)
+		}
+		writeFile.Close()
+
+		select {
+		case got := <-done:
+			if !got.LastMessage {
+				t.Error("expected LastMessage to be true")
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for message")
+		}
 	})
 }
 

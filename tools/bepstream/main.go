@@ -1,51 +1,91 @@
 // Package main provides a BEP (Build Event Protocol) stream reader.
 // It reads Bazel's build event binary file and outputs a summary of events.
+// Supports streaming mode (-f) to follow the file as it's being written.
 package main
 
 import (
 	"bufio"
-	"encoding/binary"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protodelim"
 
 	bespb "github.com/example/bep-demo/tools/bepstream/proto"
 )
 
+var (
+	followMode  = flag.Bool("f", false, "Follow mode: wait for new data as the file is being written")
+	pollInterval = flag.Duration("poll", 100*time.Millisecond, "Poll interval when following (default 100ms)")
+	timeout      = flag.Duration("timeout", 5*time.Minute, "Timeout for follow mode (default 5m)")
+)
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <bep-binary-file>\n", os.Args[0])
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [-f] [-poll duration] [-timeout duration] <bep-binary-file>\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nRun bazel with: bazel build --build_event_binary_file=/tmp/bep.bin //...\n")
+		fmt.Fprintf(os.Stderr, "\nFor streaming mode, start this tool first with -f, then run bazel:\n")
+		fmt.Fprintf(os.Stderr, "  Terminal 1: %s -f /tmp/bep.bin\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  Terminal 2: bazel build --build_event_binary_file=/tmp/bep.bin //...\n")
+	}
+	flag.Parse()
+
+	if flag.NArg() < 1 {
+		flag.Usage()
 		os.Exit(1)
 	}
 
-	filename := os.Args[1]
-	if err := streamBEP(filename); err != nil {
+	filename := flag.Arg(0)
+	opts := streamOptions{
+		follow:       *followMode,
+		pollInterval: *pollInterval,
+		timeout:      *timeout,
+	}
+	if err := streamBEP(filename, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func streamBEP(filename string) error {
-	file, err := os.Open(filename)
+type streamOptions struct {
+	follow       bool
+	pollInterval time.Duration
+	timeout      time.Duration
+}
+
+func streamBEP(filename string, opts streamOptions) error {
+	var file *os.File
+	var err error
+
+	if opts.follow {
+		file, err = waitForFile(filename, opts.timeout)
+	} else {
+		file, err = os.Open(filename)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	reader := bufio.NewReader(file)
+	reader := newStreamReader(file, opts)
 	eventCount := 0
 	stats := &buildStats{}
 
 	fmt.Println("=== BEP Stream Summary ===")
 	fmt.Println()
 
+	startTime := time.Now()
 	for {
-		event, err := readDelimitedMessage(reader)
+		event, err := reader.readDelimitedMessage()
 		if err == io.EOF {
+			if opts.follow && time.Since(startTime) < opts.timeout {
+				time.Sleep(opts.pollInterval)
+				continue
+			}
 			break
 		}
 		if err != nil {
@@ -69,26 +109,64 @@ func streamBEP(filename string) error {
 	return nil
 }
 
-func readDelimitedMessage(reader *bufio.Reader) (*bespb.BuildEvent, error) {
-	size, err := binary.ReadUvarint(reader)
-	if err != nil {
-		return nil, err
-	}
+func waitForFile(filename string, timeout time.Duration) (*os.File, error) {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 100 * time.Millisecond
 
-	buf := make([]byte, size)
-	if _, err := io.ReadFull(reader, buf); err != nil {
-		return nil, fmt.Errorf("failed to read message body: %w", err)
+	for {
+		file, err := os.Open(filename)
+		if err == nil {
+			return file, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timeout waiting for file %s to be created", filename)
+		}
+		fmt.Printf("Waiting for %s to be created...\n", filename)
+		time.Sleep(pollInterval)
 	}
+}
 
+type streamReader struct {
+	file         *os.File
+	reader       *bufio.Reader
+	follow       bool
+	pollInterval time.Duration
+	timeout      time.Duration
+}
+
+func newStreamReader(file *os.File, opts streamOptions) *streamReader {
+	return &streamReader{
+		file:         file,
+		reader:       bufio.NewReader(file),
+		follow:       opts.follow,
+		pollInterval: opts.pollInterval,
+		timeout:      opts.timeout,
+	}
+}
+
+func (r *streamReader) readDelimitedMessage() (*bespb.BuildEvent, error) {
 	event := &bespb.BuildEvent{}
-	opts := proto.UnmarshalOptions{
-		DiscardUnknown: true,
-	}
-	if err := opts.Unmarshal(buf, event); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal event: %w", err)
-	}
+	startTime := time.Now()
 
-	return event, nil
+	for {
+		err := protodelim.UnmarshalFrom(r.reader, event)
+		if err == nil {
+			return event, nil
+		}
+		if err != io.EOF {
+			return nil, fmt.Errorf("failed to read message: %w", err)
+		}
+		if !r.follow {
+			return nil, io.EOF
+		}
+		if time.Since(startTime) > r.timeout {
+			return nil, io.EOF
+		}
+		time.Sleep(r.pollInterval)
+	}
 }
 
 type buildStats struct {
