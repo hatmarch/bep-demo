@@ -1,0 +1,5 @@
+bazel-bazel-testing
+bazel-bep-demo
+bazel-bin
+bazel-out
+bazel-testlogs
