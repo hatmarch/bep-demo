@@ -1,0 +1,23 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_library", "java_test")
+
+java_library(
+    name = "greeter_lib",
+    srcs = ["Greeter.java"],
+    visibility = ["//visibility:public"],
+)
+
+java_binary(
+    name = "greeter",
+    main_class = "greeter.Greeter",
+    runtime_deps = [":greeter_lib"],
+)
+
+java_test(
+    name = "greeter_test",
+    srcs = ["GreeterTest.java"],
+    test_class = "greeter.GreeterTest",
+    deps = [
+        ":greeter_lib",
+        "@maven//:junit_junit",
+    ],
+)

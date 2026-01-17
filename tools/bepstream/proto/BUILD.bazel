@@ -1,0 +1,137 @@
+load("@rules_go//proto:def.bzl", "go_proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "option_filters_proto",
+    srcs = ["src/main/protobuf/option_filters.proto"],
+    strip_import_prefix = "",
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "option_filters_go_proto",
+    importpath = "github.com/example/bep-demo/tools/bepstream/proto/option_filters",
+    proto = ":option_filters_proto",
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "strategy_policy_proto",
+    srcs = ["src/main/protobuf/strategy_policy.proto"],
+    strip_import_prefix = "",
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "strategy_policy_go_proto",
+    importpath = "github.com/example/bep-demo/tools/bepstream/proto/strategy_policy",
+    proto = ":strategy_policy_proto",
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "command_line_proto",
+    srcs = ["src/main/protobuf/command_line.proto"],
+    strip_import_prefix = "",
+    visibility = ["//visibility:public"],
+    deps = [":option_filters_proto"],
+)
+
+go_proto_library(
+    name = "command_line_go_proto",
+    importpath = "github.com/example/bep-demo/tools/bepstream/proto/command_line",
+    proto = ":command_line_proto",
+    visibility = ["//visibility:public"],
+    deps = [":option_filters_go_proto"],
+)
+
+proto_library(
+    name = "failure_details_proto",
+    srcs = ["src/main/protobuf/failure_details.proto"],
+    strip_import_prefix = "",
+    visibility = ["//visibility:public"],
+    deps = ["@protobuf//:descriptor_proto"],
+)
+
+go_proto_library(
+    name = "failure_details_go_proto",
+    importpath = "github.com/example/bep-demo/tools/bepstream/proto/failure_details",
+    proto = ":failure_details_proto",
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "invocation_policy_proto",
+    srcs = ["src/main/protobuf/invocation_policy.proto"],
+    strip_import_prefix = "",
+    visibility = ["//visibility:public"],
+    deps = [":strategy_policy_proto"],
+)
+
+go_proto_library(
+    name = "invocation_policy_go_proto",
+    importpath = "github.com/example/bep-demo/tools/bepstream/proto/invocation_policy",
+    proto = ":invocation_policy_proto",
+    visibility = ["//visibility:public"],
+    deps = [":strategy_policy_go_proto"],
+)
+
+proto_library(
+    name = "action_cache_proto",
+    srcs = ["src/main/protobuf/action_cache.proto"],
+    strip_import_prefix = "",
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "action_cache_go_proto",
+    importpath = "github.com/example/bep-demo/tools/bepstream/proto/action_cache",
+    proto = ":action_cache_proto",
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "package_load_metrics_proto",
+    srcs = ["src/main/java/com/google/devtools/build/lib/packages/metrics/package_load_metrics.proto"],
+    strip_import_prefix = "",
+    visibility = ["//visibility:public"],
+    deps = ["@protobuf//:duration_proto"],
+)
+
+go_proto_library(
+    name = "package_load_metrics_go_proto",
+    importpath = "github.com/example/bep-demo/tools/bepstream/proto/package_load_metrics",
+    proto = ":package_load_metrics_proto",
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "build_event_stream_proto",
+    srcs = ["build_event_stream.proto"],
+    strip_import_prefix = "",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":action_cache_proto",
+        ":command_line_proto",
+        ":failure_details_proto",
+        ":invocation_policy_proto",
+        ":package_load_metrics_proto",
+        "@protobuf//:any_proto",
+        "@protobuf//:duration_proto",
+        "@protobuf//:timestamp_proto",
+    ],
+)
+
+go_proto_library(
+    name = "build_event_stream_go_proto",
+    importpath = "github.com/example/bep-demo/tools/bepstream/proto",
+    proto = ":build_event_stream_proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":action_cache_go_proto",
+        ":command_line_go_proto",
+        ":failure_details_go_proto",
+        ":invocation_policy_go_proto",
+        ":package_load_metrics_go_proto",
+    ],
+)

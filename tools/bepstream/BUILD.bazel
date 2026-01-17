@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "bepstream_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/example/bep-demo/tools/bepstream",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//tools/bepstream/proto:build_event_stream_go_proto",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_binary(
+    name = "bepstream",
+    embed = [":bepstream_lib"],
+    visibility = ["//visibility:public"],
+)

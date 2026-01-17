@@ -1,0 +1,61 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions (for example, .so files)
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Bazel build artifacts
+bazel-bin/
+bazel-out/
+bazel-testlogs/
+bazel-*
+
+# IDE specific files
+.idea/
+.vscode/
+.cache/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Java related files
+*.class
+target/
+
+# Node.js related files (if applicable)
+node_modules/
+
+# Python related files
+.pytest_cache/
+.coverage
+*.pyc
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Log files
+*.log
+
